@@ -1,0 +1,4 @@
+export const GAME_TIME = {
+  ONE_TURN_TIME: 10000,
+  SHOW_TURN_RESULT_TIME: 5000,
+};
