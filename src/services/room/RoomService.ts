@@ -113,6 +113,14 @@ class RoomService implements IRoomService {
       };
     }
     const room = this.listRooms.find((room) => room.roomId === data.roomId);
+    const checkUserInRoom = room?.roomMembers.find((userId) => userId === data.userId);
+    if (checkUserInRoom) {
+      return {
+        statusCode: 200,
+        isSuccess: true,
+        data: room.roomInfo,
+      };
+    }
     if (!room) {
       return {
         statusCode: 400,
@@ -156,7 +164,10 @@ class RoomService implements IRoomService {
         return room;
       }
       const newRoom = room.data as Room;
-      newRoom.roomMembers.push(data.userId);
+      const checkUserInRoom = newRoom.roomMembers.find((userId) => userId === data.userId);
+      if (!checkUserInRoom) {
+        newRoom.roomMembers.push(data.userId);
+      }
 
       const roomInfo = this.getRoomInfo(data.roomId);
       return {

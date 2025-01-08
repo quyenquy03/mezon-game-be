@@ -77,7 +77,7 @@ class SocketService implements ISocketService {
     if (createRoomResponse.isSuccess) {
       console.log(`User with socket id ${socket.id} created room ${createRoomResponse.data.roomId} successfully`);
       const getListRoomResponse = await this._roomService.getListRooms();
-      socket.emit(SocketEvents.EMIT.CREATE_ROOM_SUCCESS, createRoomResponse.data);
+      socket.emit(SocketEvents.EMIT.CREATE_ROOM_SUCCESS, createRoomResponse);
       this.socketServer.emit(SocketEvents.EMIT.GET_LIST_ROOMS_SUCCESS, getListRoomResponse);
     } else {
       console.log(`User with socket id ${socket.id} created room failed: ${createRoomResponse.errorMessage}`);
@@ -193,13 +193,15 @@ class SocketService implements ISocketService {
     if (data.currentRound === 1) {
       socket.join(data.gameId);
     }
+    const yourInfo = await this._userService.getUserById(data.userId);
+    const rivalInfo = await this._userService.getUserById(myGroup?.player1 === data.userId ? myGroup?.player2 : myGroup?.player1);
     const roundInfo = {
       gameId: data.gameId,
       roundId: roundGame.roundId,
       currentRound: roundGame.round,
       currentTurn: roundGame.currentTurn,
-      yourInfo: this._userService.getUserById(data.userId),
-      rivalInfo: this._userService.getUserById(myGroup?.player1 === data.userId ? myGroup?.player2 : myGroup?.player1),
+      yourInfo: yourInfo.data,
+      rivalInfo: rivalInfo.data,
     };
     socket.emit(SocketEvents.EMIT.START_ROUND_SUCCESS, {
       isSuccess: true,
@@ -257,8 +259,6 @@ class SocketService implements ISocketService {
 
     const roundGame = await this._gameService.getRoundOfGame(data.gameId, data.currentRound);
     setTimeout(() => {
-      // handle continue turn here
-
       // end round if current turn greater than total turn of round
       const roundGameData = roundGame.data as RoundGame;
       let winCount = 0;
@@ -272,7 +272,34 @@ class SocketService implements ISocketService {
           loseCount++;
         }
       });
-      if (myGroup?.results.length === data.currentTurn) {
+      if (data.currentTurn >= myGroup?.results.length) {
+        if (winCount === loseCount) {
+          // start dice turn if current turn greater than total turn + 1;
+          if (data.currentTurn >= myGroup?.results.length + 1) {
+          }
+
+          // add new turn to start next turn.
+          myGroup?.results.push({
+            turn: myGroup?.results.length + 1,
+            player1Choice: null,
+            player2Choice: null,
+            winner: null,
+          });
+          const nextTurnData: IStartTurnSubmitDTO = {
+            roomId: data.roomId,
+            gameId: data.gameId,
+            userId: data.userId,
+            currentRound: data.currentRound,
+            roundId: data.roundId,
+            currentTurn: data.currentTurn + 1,
+          };
+          socket.emit(SocketEvents.EMIT.CONTINUE_TURN, {
+            isSuccess: true,
+            data: nextTurnData,
+          });
+          return;
+        }
+
         // end round
         const endOfRoundData = {
           gameId: data.gameId,
@@ -331,14 +358,14 @@ class SocketService implements ISocketService {
   onCombineNextRound = async (socket: Socket, data: ICombineNextRoundSubmitDTO) => {
     const currentRoomResponse = await this._roomService.getRoomById(data.roomId);
     if (!currentRoomResponse || !currentRoomResponse.isSuccess) {
-      console.log(`User with socket id ${socket.id} combine next round failed 330: ${currentRoomResponse.errorMessage}`);
+      console.log(`User with socket id ${socket.id} combine next round: ${currentRoomResponse.errorMessage}`);
       socket.emit(SocketEvents.EMIT.COMBINE_NEXT_ROUND_FAILED, currentRoomResponse);
       return;
     }
     const currentRoom = currentRoomResponse.data as Room;
     const roundGameResponse = await this._gameService.getRoundOfGame(data.gameId, data.currentRound);
     if (!roundGameResponse || !roundGameResponse.isSuccess) {
-      console.log(`User with socket id ${socket.id} combine next round failed 337: ${roundGameResponse.errorMessage}`);
+      console.log(`User with socket id ${socket.id} combine next round: ${roundGameResponse.errorMessage}`);
       socket.emit(SocketEvents.EMIT.COMBINE_NEXT_ROUND_FAILED, roundGameResponse);
       return;
     }
@@ -353,14 +380,12 @@ class SocketService implements ISocketService {
         };
         const endGameResponse = await this._gameService.endGame(endGameData);
         if (!endGameResponse.isSuccess) {
-          console.log("end of game 64", data.gameId);
           this.socketServer.to(data.gameId).emit(SocketEvents.EMIT.END_OF_GAME, {
             isSuccess: false,
             errorMessage: endGameResponse.errorMessage,
           });
           return;
         }
-        console.log("End of game 370", data.gameId);
         this.socketServer.to(data.gameId).emit(SocketEvents.EMIT.END_OF_GAME, {
           isSuccess: true,
           data: {
